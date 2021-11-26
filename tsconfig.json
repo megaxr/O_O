@@ -1,5 +1,6 @@
 {
     "compilerOptions": {
-        "lib": ["esnext", "dom"]
+        "lib": ["esnext", "dom"],
+        "types": ["https://cdn.jsdelivr.net/npm/babylonjs@5.0.0-alpha.62/babylon.module.d.ts"]
     }
 }
