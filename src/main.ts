@@ -5,14 +5,23 @@ const scene = new BABYLON.Scene(engine);
 // credit: https://github.com/tuki0918/blender-vr-tips
 const dome = new BABYLON.VideoDome("videoDome", ["../assets/vr180.mp4"], { autoPlay: false }, scene);
 
+// videoDome
 dome.halfDome = true;
 dome.videoMode = BABYLON.VideoDome.MODE_SIDEBYSIDE;
-
 dome.videoTexture.video.autoplay = false;
 dome.videoTexture.video.crossOrigin = "anonymous";
 dome.videoTexture.video.muted = true;
-
 dome.setEnabled(false);
+
+// UI
+const uiPlane = BABYLON.MeshBuilder.CreatePlane("ui-plane");
+uiPlane.position.z = 2.5;
+const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiPlane);
+const button = BABYLON.GUI.Button.CreateSimpleButton("button", "vr180.mp4");
+button.width = 1;
+button.height = 0.4;
+button.fontSize = 200;
+uiTexture.addControl(button);
 
 scene.createDefaultXRExperienceAsync().then((xrHelper) => {
   xrHelper.baseExperience.onStateChangedObservable.add((state) => {
