@@ -55,6 +55,7 @@ export default class O_O {
           },
           states: {
             [OStates.PLAYING]: {
+              entry: OActions.SHOW_PAUSE,
               on: {
                 PAUSE: {
                   target: OStates.PAUSING,
@@ -63,6 +64,7 @@ export default class O_O {
               },
             },
             [OStates.PAUSING]: {
+              entry: OActions.SHOW_PLAY,
               on: {
                 PLAY: {
                   target: OStates.PLAYING,
@@ -92,24 +94,53 @@ export default class O_O {
           const v = context.video?.videoTexture.video;
           v?.paused || v?.pause();
         },
+        [OActions.SHOW_PLAY]: (context) => {
+          const playBtn = context.ui?.playButton!;
+          playBtn.isVisible = true;
+          playBtn.onPointerClickObservable.addOnce(() =>
+            this._oService.send("PLAY")
+          );
+          const pauseBtn = context.ui?.pauseButton!;
+          pauseBtn.isVisible = false;
+        },
+        [OActions.SHOW_PAUSE]: (context) => {
+          const playBtn = context.ui?.playButton!;
+          playBtn.isVisible = false;
+          const pauseBtn = context.ui?.pauseButton!;
+          pauseBtn.isVisible = true;
+          pauseBtn.onPointerClickObservable.addOnce(() => {
+            this._oService.send("PAUSE");
+          });
+        },
       },
     });
   }
-  private _initUI(): BABYLON.Mesh {
-    const uiPlane = BABYLON.MeshBuilder.CreatePlane("ui-plane");
-    uiPlane.position.z = 2.5;
-    const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiPlane);
-    const button = BABYLON.GUI.Button.CreateSimpleButton("button", "Pause");
-    button.width = 1;
-    button.height = 0.4;
-    button.fontSize = 200;
-    button.background = "green";
-    button.onPointerClickObservable.add(() => {
-      this._oService.send("PAUSE");
-      (button.children[0] as BABYLON.GUI.TextBlock).text = "Click";
-    });
-    uiTexture.addControl(button);
-    return uiPlane;
+  private _initUI(): OUI {
+    const uiMesh = BABYLON.MeshBuilder.CreatePlane("ui-mesh");
+    uiMesh.position.z = 2.5;
+    const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiMesh);
+    
+    const playButton = BABYLON.GUI.Button.CreateSimpleButton(
+      "play-button",
+      OActions.PLAY_VIDEO,
+    );
+    playButton.width = 1;
+    playButton.height = 0.4;
+    playButton.fontSize = 200;
+    playButton.background = "green";
+    uiTexture.addControl(playButton);
+
+    const pauseButton = BABYLON.GUI.Button.CreateSimpleButton(
+      "pause-button",
+      OActions.PAUSE_VIDEO,
+    );
+    pauseButton.width = 1;
+    pauseButton.height = 0.4;
+    pauseButton.fontSize = 200;
+    pauseButton.background = "green";
+    uiTexture.addControl(pauseButton);
+
+    return { uiMesh: uiMesh, playButton: playButton, pauseButton: pauseButton };
   }
   private _initVideo(): BABYLON.VideoDome {
     const dome = new BABYLON.VideoDome("video", ["../assets/vr180.mp4"], {
@@ -127,7 +158,7 @@ export default class O_O {
 
 interface OContext {
   video?: BABYLON.VideoDome;
-  ui?: BABYLON.Mesh;
+  ui?: OUI;
 }
 
 const OStates = {
@@ -149,11 +180,20 @@ type OEvents =
   | { type: "PAUSE" };
 
 const OActions = {
-  PLAY_VIDEO: "PLAY VIDEO",
-  PAUSE_VIDEO: "PAUSE VIDEO",
+  PLAY_VIDEO: "PLAY",
+  PAUSE_VIDEO: "PAUSE",
+  SHOW_PAUSE: "SHOW PAUSE",
+  SHOW_PLAY: "SHOW PLAY",
 };
 
 type OTypeStates = {
   value: typeof OStates;
   context: OContext;
+};
+
+type OUI = {
+  uiMesh?: BABYLON.Mesh;
+  playButton?: BABYLON.GUI.Button;
+  pauseButton?: BABYLON.GUI.Button;
+  exitButton?: BABYLON.GUI.Button;
 };
