@@ -4,7 +4,6 @@
     "types": [
       "https://cdn.jsdelivr.net/npm/babylonjs@5.0.0-alpha.63/babylon.module.d.ts",
       "https://cdn.jsdelivr.net/npm/babylonjs-gui@5.0.0-alpha.63/babylon.gui.module.d.ts",
-      "https://cdn.jsdelivr.net/npm/@xstate/fsm@1.6.2/es/types.d.ts"
     ]
   },
   "lint": {

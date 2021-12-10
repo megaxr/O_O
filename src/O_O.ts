@@ -1,142 +1,159 @@
-import { createMachine, interpret, StateMachine } from "./deps.ts";
+import { createMachine, interpret, Interpreter, StateMachine } from "./deps.ts";
 
-const states = {
-  ENTERING_XR: "entering XR",
-  IN_XR: "in XR",
-  NOT_IN_XR: "not in XR",
-};
-const events = {
-  CHECK_XR: "check",
-  ENTER_XR: "enter",
-  EXIT_XR: "exit",
-};
-const actions = {
-  PLAY_VIDEO: "play video",
-  PAUSE_VIDEO: "pause video",
-  SHOW_PLAYER: "show player",
-  HIDE_PLAYER: "hide player",
-};
-type OContext = {
-  dome: BABYLON.VideoDome;
-  player: BABYLON.Mesh;
-};
 export default class O_O {
   private static o_o: O_O;
   private _engine: BABYLON.Engine;
   private _scene: BABYLON.Scene;
-  private _machine: StateMachine.Machine;
-  private _service: StateMachine.Service;
-
+  private _xr: BABYLON.WebXRExperienceHelper | undefined;
+  private _oMachine: StateMachine<
+    OContext,
+    Record<never, never>,
+    OEvents,
+    OTypeStates
+  >;
+  private _oService: Interpreter<
+    OContext,
+    Record<never, never>,
+    OEvents,
+    OTypeStates
+  >;
   private constructor(canvas: HTMLCanvasElement) {
+    // init engine
     this._engine = new BABYLON.Engine(canvas);
     this._scene = new BABYLON.Scene(this._engine);
     this._engine.runRenderLoop(() => this._scene.render());
-    this._machine = createMachine<OContext>({
-      id: "machine",
-      context: {
-        dome: this._initVideo(),
-        player: this._initPlayer(),
-      },
-      initial: states.NOT_IN_XR,
-      states: {
-        [states.ENTERING_XR]: {
-          on: {
-            [events.ENTER_XR]: {
-              target: states.IN_XR,
-              actions: [actions.PLAY_VIDEO, actions.SHOW_PLAYER],
-            },
-          },
-        },
-        [states.IN_XR]: {
-          on: {
-            [events.EXIT_XR]: {
-              target: states.NOT_IN_XR,
-              actions: [actions.PAUSE_VIDEO, actions.HIDE_PLAYER],
-            },
-          },
-        },
-        [states.NOT_IN_XR]: {
-          on: {
-            [events.CHECK_XR]: states.ENTERING_XR,
-          },
-        },
-      },
-    }, {
-      actions: {
-        [actions.PLAY_VIDEO]: (context: OContext) => {
-          const dome = context.dome;
-          dome.setEnabled(true);
-          dome.videoTexture.video.muted = false;
-          dome.videoTexture.video.play();
-        },
-        [actions.PAUSE_VIDEO]: (context: OContext) => {
-          const dome = context.dome;
-          dome.videoTexture.video.pause();
-          dome.setEnabled(false);
-        },
-        [actions.SHOW_PLAYER]: (context: OContext) => {
-          const player = context.player;
-          player.setEnabled(true);
-        },
-        [actions.HIDE_PLAYER]: (context: OContext) => {
-          const player = context.player;
-          player.setEnabled(false);
-        },
-      },
-    });
-    this._service = interpret(this._machine).start();
-    this._initXR().then((xrHelper) => {
-      xrHelper.onStateChangedObservable.add((xrStates) => {
-        switch (xrStates) {
-          case 0: // ENTERING_XR
-            this._matchThenSend(states.NOT_IN_XR, events.CHECK_XR);
-            break;
-          // case 1: // EXITING_XR
-          // console.log("EXITING_XR");
-          // break;
-          case 2: // IN_XR
-            this._matchThenSend(states.ENTERING_XR, events.ENTER_XR);
-            break;
-          case 3: // NOT_IN_XR
-            this._matchThenSend(states.IN_XR, events.EXIT_XR);
-            // scene.debugLayer.show();
-            break;
-        }
+    // init XR
+    this._scene.createDefaultXRExperienceAsync().then((xrHelper) => {
+      this._xr = xrHelper.baseExperience;
+      this._xr.onStateChangedObservable.add((state) => {
+        (state == 2) && this._oService.send("ENTER"); // IN_XR
+        (state == 3) && this._oService.send("EXIT"); // NOT_IN_XR
       });
     });
-  }
-  private _matchThenSend(state: string, event: string) {
-    this._service.state.matches(state) && this._service.send(event);
-  }
-  private _initVideo(): BABYLON.VideoDome {
-    const dome = new BABYLON.VideoDome("videoDome", ["../assets/vr180.mp4"], {
-      autoPlay: false,
-    }, this._scene);
-    dome.halfDome = true;
-    dome.videoMode = BABYLON.VideoDome.MODE_SIDEBYSIDE;
-    dome.videoTexture.video.autoplay = false;
-    dome.videoTexture.video.crossOrigin = "anonymous";
-    dome.videoTexture.video.muted = true;
-    dome.setEnabled(false);
-    return dome;
-  }
-  private _initPlayer(): BABYLON.Mesh {
-    const uiPlane = BABYLON.MeshBuilder.CreatePlane("ui-plane");
-    uiPlane.position.z = 2.5;
-    const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiPlane);
-    const button = BABYLON.GUI.Button.CreateSimpleButton("button", "vr180.mp4");
-    button.width = 1;
-    button.height = 0.4;
-    button.fontSize = 200;
-    uiTexture.addControl(button);
-    return uiPlane;
-  }
-  private async _initXR(): Promise<BABYLON.WebXRExperienceHelper> {
-    const xrHelper = await this._scene.createDefaultXRExperienceAsync();
-    return xrHelper.baseExperience;
+    // init machine & service
+    this._oMachine = this._initMachine();
+    this._oService = interpret(this._oMachine).start();
   }
   public static init(canvas: HTMLCanvasElement) {
     this.o_o || (this.o_o = new O_O(canvas));
     return this.o_o;
   }
+  private _initMachine() {
+    return createMachine<OContext, OEvents, OTypeStates>({
+      context: {
+        video: this._initVideo(),
+        ui: this._initUI(),
+      },
+      initial: OStates.NOT_IN_XR,
+      states: {
+        [OStates.IN_XR]: {
+          on: {
+            EXIT: {
+              target: OStates.NOT_IN_XR,
+              actions: OActions.PAUSE_VIDEO,
+            },
+          },
+          states: {
+            [OStates.PLAYING]: {
+              on: {
+                PAUSE: {
+                  target: OStates.PAUSING,
+                  actions: OActions.PAUSE_VIDEO,
+                },
+              },
+            },
+            [OStates.PAUSING]: {
+              on: {
+                PLAY: {
+                  target: OStates.PLAYING,
+                  actions: OActions.PLAY_VIDEO,
+                },
+              },
+            },
+          },
+        },
+        [OStates.NOT_IN_XR]: {
+          on: {
+            ENTER: {
+              target: OStates.IN_XR__PLAYING,
+              actions: OActions.PLAY_VIDEO,
+            },
+          },
+        },
+      },
+    }, {
+      actions: {
+        [OActions.PLAY_VIDEO]: (context) => {
+          const v = context.video?.videoTexture.video;
+          v?.muted && (v.muted = false);
+          v?.paused && v?.play();
+        },
+        [OActions.PAUSE_VIDEO]: (context) => {
+          const v = context.video?.videoTexture.video;
+          v?.paused || v?.pause();
+        },
+      },
+    });
+  }
+  private _initUI(): BABYLON.Mesh {
+    const uiPlane = BABYLON.MeshBuilder.CreatePlane("ui-plane");
+    uiPlane.position.z = 2.5;
+    const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiPlane);
+    const button = BABYLON.GUI.Button.CreateSimpleButton("button", "Pause");
+    button.width = 1;
+    button.height = 0.4;
+    button.fontSize = 200;
+    button.background = "green";
+    button.onPointerClickObservable.add(() => {
+      this._oService.send("PAUSE");
+      (button.children[0] as BABYLON.GUI.TextBlock).text = "Click";
+    });
+    uiTexture.addControl(button);
+    return uiPlane;
+  }
+  private _initVideo(): BABYLON.VideoDome {
+    const dome = new BABYLON.VideoDome("video", ["../assets/vr180.mp4"], {
+      autoPlay: false,
+    }, this._scene);
+    dome.halfDome = true;
+    dome.videoMode = BABYLON.VideoDome.MODE_SIDEBYSIDE;
+    const v = dome.videoTexture.video;
+    v.autoplay = false;
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    return dome;
+  }
 }
+
+interface OContext {
+  video?: BABYLON.VideoDome;
+  ui?: BABYLON.Mesh;
+}
+
+const OStates = {
+  // main
+  IN_XR: "IN XR",
+  NOT_IN_XR: "NOT IN XR",
+  // in XR
+  IN_XR__PLAYING: "IN XR.PLAYING",
+  PLAYING: "PLAYING",
+  PAUSING: "PAUSING",
+};
+
+type OEvents =
+  // main
+  | { type: "ENTER" }
+  | { type: "EXIT" }
+  // in XR
+  | { type: "PLAY" }
+  | { type: "PAUSE" };
+
+const OActions = {
+  PLAY_VIDEO: "PLAY VIDEO",
+  PAUSE_VIDEO: "PAUSE VIDEO",
+};
+
+type OTypeStates = {
+  value: typeof OStates;
+  context: OContext;
+};
