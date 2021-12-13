@@ -5,24 +5,15 @@ export default class O_O {
   private _engine: BABYLON.Engine;
   private _scene: BABYLON.Scene;
   private _xr: BABYLON.WebXRExperienceHelper | undefined;
-  private _oMachine: StateMachine<
-    OContext,
-    Record<never, never>,
-    OEvents,
-    OTypeStates
-  >;
-  private _oService: Interpreter<
-    OContext,
-    Record<never, never>,
-    OEvents,
-    OTypeStates
-  >;
+  private _oMachine: StateMachine<OContext, OStateSchema, OEvents>;
+  private _oService: Interpreter<OContext, OStateSchema, OEvents>;
   private constructor(canvas: HTMLCanvasElement) {
     // init engine
     this._engine = new BABYLON.Engine(canvas);
     this._scene = new BABYLON.Scene(this._engine);
     this._engine.runRenderLoop(() => this._scene.render());
     // init XR
+    new BABYLON.FreeCamera("", BABYLON.Vector3.Zero(), this._scene); // hack for keep camera height when re-entry XR.
     this._scene.createDefaultXRExperienceAsync().then((xrHelper) => {
       this._xr = xrHelper.baseExperience;
       this._xr.onStateChangedObservable.add((state) => {
@@ -39,7 +30,7 @@ export default class O_O {
     return this.o_o;
   }
   private _initMachine() {
-    return createMachine<OContext, OEvents, OTypeStates>({
+    return createMachine<OContext, OEvents>({
       context: {
         video: this._initVideo(),
         ui: this._initUI(),
@@ -47,6 +38,7 @@ export default class O_O {
       initial: OStates.NOT_IN_XR,
       states: {
         [OStates.IN_XR]: {
+          entry: OActions.ENTER_XR,
           on: {
             EXIT: {
               target: OStates.NOT_IN_XR,
@@ -55,7 +47,6 @@ export default class O_O {
           },
           states: {
             [OStates.PLAYING]: {
-              entry: OActions.SHOW_PAUSE,
               on: {
                 PAUSE: {
                   target: OStates.PAUSING,
@@ -64,7 +55,6 @@ export default class O_O {
               },
             },
             [OStates.PAUSING]: {
-              entry: OActions.SHOW_PLAY,
               on: {
                 PLAY: {
                   target: OStates.PLAYING,
@@ -85,25 +75,16 @@ export default class O_O {
       },
     }, {
       actions: {
+        [OActions.ENTER_XR]: (context) => {
+          const exitBtn = context.ui?.exitButton!;
+          exitBtn.onPointerClickObservable.addOnce(() => {
+            this._xr?.exitXRAsync().then(() => this._oService.send("EXIT"));
+          });
+        },
         [OActions.PLAY_VIDEO]: (context) => {
           const v = context.video?.videoTexture.video;
           v?.muted && (v.muted = false);
           v?.paused && v?.play();
-        },
-        [OActions.PAUSE_VIDEO]: (context) => {
-          const v = context.video?.videoTexture.video;
-          v?.paused || v?.pause();
-        },
-        [OActions.SHOW_PLAY]: (context) => {
-          const playBtn = context.ui?.playButton!;
-          playBtn.isVisible = true;
-          playBtn.onPointerClickObservable.addOnce(() =>
-            this._oService.send("PLAY")
-          );
-          const pauseBtn = context.ui?.pauseButton!;
-          pauseBtn.isVisible = false;
-        },
-        [OActions.SHOW_PAUSE]: (context) => {
           const playBtn = context.ui?.playButton!;
           playBtn.isVisible = false;
           const pauseBtn = context.ui?.pauseButton!;
@@ -112,35 +93,58 @@ export default class O_O {
             this._oService.send("PAUSE");
           });
         },
+        [OActions.PAUSE_VIDEO]: (context) => {
+          const v = context.video?.videoTexture.video;
+          v?.paused || v?.pause();
+          const playBtn = context.ui?.playButton!;
+          playBtn.isVisible = true;
+          playBtn.onPointerClickObservable.addOnce(() =>
+            this._oService.send("PLAY")
+          );
+          const pauseBtn = context.ui?.pauseButton!;
+          pauseBtn.isVisible = false;
+        },
       },
     });
   }
   private _initUI(): OUI {
     const uiMesh = BABYLON.MeshBuilder.CreatePlane("ui-mesh");
-    uiMesh.position.z = 2.5;
+    uiMesh.position.z = 3;
     const uiTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(uiMesh);
-    
+
     const playButton = BABYLON.GUI.Button.CreateSimpleButton(
       "play-button",
       OActions.PLAY_VIDEO,
     );
-    playButton.width = 1;
-    playButton.height = 0.4;
     playButton.fontSize = 200;
-    playButton.background = "green";
+    playButton.background = "grey";
+    playButton.paddingBottomInPixels = 512;
     uiTexture.addControl(playButton);
 
     const pauseButton = BABYLON.GUI.Button.CreateSimpleButton(
       "pause-button",
       OActions.PAUSE_VIDEO,
     );
-    pauseButton.width = 1;
-    pauseButton.height = 0.4;
     pauseButton.fontSize = 200;
-    pauseButton.background = "green";
+    pauseButton.background = "grey";
+    pauseButton.paddingBottomInPixels = 512;
     uiTexture.addControl(pauseButton);
 
-    return { uiMesh: uiMesh, playButton: playButton, pauseButton: pauseButton };
+    const exitButton = BABYLON.GUI.Button.CreateSimpleButton(
+      "exit-button",
+      OActions.EXIT_XR,
+    );
+    exitButton.fontSize = 200;
+    exitButton.background = "grey";
+    exitButton.paddingTopInPixels = 512;
+    uiTexture.addControl(exitButton);
+
+    return {
+      uiMesh: uiMesh,
+      playButton: playButton,
+      pauseButton: pauseButton,
+      exitButton: exitButton,
+    };
   }
   private _initVideo(): BABYLON.VideoDome {
     const dome = new BABYLON.VideoDome("video", ["../assets/vr180.mp4"], {
@@ -154,11 +158,6 @@ export default class O_O {
     v.muted = true;
     return dome;
   }
-}
-
-interface OContext {
-  video?: BABYLON.VideoDome;
-  ui?: OUI;
 }
 
 const OStates = {
@@ -180,15 +179,15 @@ type OEvents =
   | { type: "PAUSE" };
 
 const OActions = {
+  ENTER_XR: "ENTER XR",
+  EXIT_XR: "EXIT XR",
   PLAY_VIDEO: "PLAY",
   PAUSE_VIDEO: "PAUSE",
-  SHOW_PAUSE: "SHOW PAUSE",
-  SHOW_PLAY: "SHOW PLAY",
 };
 
-type OTypeStates = {
-  value: typeof OStates;
-  context: OContext;
+type OContext = {
+  video?: BABYLON.VideoDome;
+  ui?: OUI;
 };
 
 type OUI = {
@@ -196,4 +195,10 @@ type OUI = {
   playButton?: BABYLON.GUI.Button;
   pauseButton?: BABYLON.GUI.Button;
   exitButton?: BABYLON.GUI.Button;
+};
+
+type OStateSchema = {
+  states: {
+    [state in keyof typeof OStates]: Record<never, never>;
+  };
 };
