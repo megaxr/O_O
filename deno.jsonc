@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.window", "dom", "esnext"]
+  },
+  "fmt": {
+    "options": {
+      "lineWidth": 120
+    }
+  },
+  "tasks": {
+    "dev": "deno task main && deno task server",
+    // require esbuild
+    "main": "esbuild src/app/main.ts --bundle --platform=browser --format=esm --outfile=dist/js/main.js",
+    // "server": "deno run --watch --allow-read=./dist/. --allow-write=./dist/. --allow-net=:8080 src/server/server.ts"
+    "server": "deno run --watch --allow-read --allow-write --allow-net src/server/server.ts"
+  },
+  "lint": {
+    "files": {
+      "exclude": ["dist"]
+    }
+  }
+}
