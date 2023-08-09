@@ -1,97 +1,80 @@
-import { serve } from "https://deno.land/std@0.175.0/http/mod.ts";
+import { serve } from "https://deno.land/std@0.180.0/http/mod.ts";
+import "https://deno.land/std@0.177.0/dotenv/load.ts";
+import { responseFileByPath, responseJsonByDir, responseVideoByRequestAndPath } from "./utils.ts";
 
-const basePath = "./dist";
-const htmlPath = `${basePath}/index.html`;
-const videoPath = `${basePath}/assets/vr180.mp4`;
+// http{s}?
+const httpPattern = new URLPattern({ protocol: "http{s}?" });
+// ws{s}?
+const wsPattern = new URLPattern({ protocol: "ws{s}?" });
+// http://localhost:8080{/}
+const patternRoot = new URLPattern({ pathname: "{/}" });
+// http://localhost:8080/:type{?}
+const patternType = new URLPattern({ pathname: "/:type", search: "*" });
+// http://localhost:8080/:type/:content
+const patternTypeContent = new URLPattern({ pathname: "/:type/:content" });
 
 async function handler(req: Request) {
   let resp: Response | undefined;
-  const url = new URL(req.url);
-  // index.html
-  if (req.method === "GET" && url.pathname === "/") {
-    const htmlFile = await Deno.readFile(htmlPath);
-    if (htmlFile) {
-      resp = new Response(
-        new TextDecoder().decode(htmlFile),
-        {
-          status: 200,
-          headers: {
-            "content-type": "text/html",
-          },
-        },
-      );
+  const url = req.url;
+
+  // HTTP 200 OK, 206 Partial Content
+  if (httpPattern.test(url)) {
+    patternRoot.test(url) && (resp = await responseFileByPath("./dist/index.html"));
+    if (patternType.test(url)) {
+      const result = patternType.exec(url);
+      if (result) {
+        const pathname = result.pathname;
+        const search = result.search;
+        const dirPath = Deno.env.get("DIR_PATH");
+        switch (pathname.groups.type) {
+          // http://localhost:8080/dir{?:path} => dir/dir+:path in json
+          case "dir":
+            search
+              ? (dirPath && (resp = await responseJsonByDir(dirPath, search.input)))
+              : (dirPath && (resp = await responseJsonByDir(dirPath)));
+            break;
+          // http://localhost:8080/video?:path => video stream
+          case "video":
+            dirPath && (resp = await responseVideoByRequestAndPath(req, dirPath, search.input));
+            break;
+          // http://localhost:8080/image?:path => image
+          case "image":
+            resp = await responseFileByPath(dirPath + search.input);
+            break;
+        }
+      }
+    }
+    if (patternTypeContent.test(url)) {
+      const result = patternTypeContent.exec(url);
+      if (result) {
+        const pathname = result.pathname;
+        switch (pathname.groups.type) {
+          // http://localhost:8080/js/:path => serve js
+          case "js":
+            resp = await responseFileByPath("./dist" + pathname.input);
+            break;
+        }
+      }
     }
   }
-  // video stream
-  if (req.method === "GET" && url.pathname === "/video") {
-    const range = req.headers.get("range");
-    const video = await Deno.open(videoPath, { read: true });
-    if (range && video) {
-      const videoSize = (await video.stat()).size;
-      const chunckSize = 10 ** 6; // 100000 byte, about 1MB
-      // Parse Range, chrome ex: bytes=0- , safari ex: bytes=0-1
-      const startIndex = Number(range.replace(/\D/g, ""));
-      const endIndex = Math.min(startIndex + chunckSize, videoSize - 1);
-      const contentLength = endIndex - startIndex + 1;
-      const cursorPosition = await video.seek(startIndex, Deno.SeekMode.Current);
-      resp = new Response(
-        new ReadableStream({
-          async pull(controller) {
-            const chunk = new Uint8Array(chunckSize);
-            try {
-              const read = await video.read(chunk);
-              if (read) {
-                controller.enqueue(chunk.subarray(0, read));
-                // controller.close();
-                // video.close();
-                // REMOVE
-                console.log(
-                  `startIndex=${startIndex}, endIndex=${endIndex}, contentLength=${contentLength}, read=${read}, cursorPosition=${cursorPosition}, chunk=${chunk.length}`,
-                );
-              }
-            } catch (_err) {
-              // REMOVE
-              console.log("error");
-              controller.error(_err);
-              video.close();
-            }
-          },
-        }),
-        {
-          status: 206,
-          headers: {
-            "Content-Range": `bytes ${startIndex}-${endIndex}/${videoSize}`,
-            "Accept-Ranges": "bytes",
-            "Content-Length": `${contentLength}`,
-            "Content-Type": "video/mp4",
-          },
-        },
-      );
-    }
+
+  if (wsPattern.test(url)) {
+    // const { socket: ws, response } = Deno.upgradeWebSocket(req);
+    // ws.onopen = () => handleConnected();
+    // ws.onmessage = (m) => handleMessage(ws, m.data);
+    // ws.onclose = () => logError("Disconnected from client ...");
+    // ws.onerror = (e) => handleError(e);
+    // return response;
   }
-  // js
-  if (req.method === "GET" && url.pathname.includes("js")) {
-    const filePath = basePath + url.pathname;
-    const file = await Deno.open(filePath, { read: true });
-    if (file) {
-      resp = new Response(file.readable, {
-        status: 200,
-        headers: {
-          "content-type": "text/javascript",
-        },
-      });
-    }
-  }
-  // 405
-  if (req.method != "GET") {
-    resp = new Response(null, { status: 405 });
-  }
-  // 404
-  if (!resp) {
-    resp = new Response(null, { status: 404 });
-  }
+
+  // 405 Method Not Allowed
+  (req.method !== "GET") && (resp = new Response(null, { status: 405 }));
+
+  // 404 Not Found
+  resp || (resp = new Response(null, { status: 404 }));
 
   return resp;
 }
 
-serve(handler, { port: 8080 });
+const port = Number(Deno.env.get("PORT"));
+serve(handler, { port: port ? port : 8080 });

@@ -8,15 +8,19 @@
     }
   },
   "tasks": {
-    "dev": "deno task main && deno task server",
-    // require esbuild
-    "main": "esbuild src/app/main.ts --bundle --platform=browser --format=esm --outfile=dist/js/main.js",
-    // "server": "deno run --watch --allow-read=./dist/. --allow-write=./dist/. --allow-net=:8080 src/server/server.ts"
-    "server": "deno run --watch --allow-read --allow-write --allow-net src/server/server.ts"
+    "dev": "deno task build_app && deno task build_server && deno task server",
+    "build_app": "deno run --allow-read --allow-write --allow-env=HOME,NPM_CONFIG_REGISTRY,ESBUILD_BINARY_PATH,LOCALAPPDATA --allow-net=registry.npmjs.org --allow-run src/app.build.ts",
+    "build_server": "deno run --allow-read --allow-write --allow-env=HOME,NPM_CONFIG_REGISTRY,ESBUILD_BINARY_PATH,LOCALAPPDATA --allow-net=registry.npmjs.org --allow-run src/server.build.ts",
+    "server": "deno run --watch --allow-read=./ --allow-write=./ --allow-net --allow-env server/server.js",
+    // new server 
+    // "server": "deno run --watch --allow-read=./ --allow-write=./ --allow-net --allow-env server/O_O.js",
+    // self-contained executables
+    "x86_64_mac": "deno compile --config deno.exe.jsonc --target x86_64-apple-darwin --allow-read --allow-write --allow-net server/O_O.ts",
+    "x86_64_win": "deno compile --config deno.exe.jsonc --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net server/O_O.ts"
   },
   "lint": {
     "files": {
-      "exclude": ["dist"]
+      "exclude": ["dist", "server"]
     }
   }
 }

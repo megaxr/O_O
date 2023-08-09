@@ -1,2 +1,8 @@
+/platform-tools
 /dist/assets
 /dist/js
+/assets
+/server
+DESIGN.md
+deno.lock
+.DS_Store
